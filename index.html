@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting...</title>
+
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        display: flex;
+        height: 100vh;
+        align-items: center;
+        justify-content: center;
+        background: #f7f7f7;
+        color: #333;
+      }
+
+      .box {
+        text-align: center;
+        padding: 30px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="box">
+      <h3>Preparing your calendar...</h3>
+      <p>Please wait a moment.</p>
+    </div>
+
+    <script>
+      async function start() {
+        const params = new URLSearchParams(window.location.search);
+        const deal_id = params.get("deal_id");
+
+        if (!deal_id) {
+          document.body.innerHTML = "<p>Missing deal_id parameter.</p>";
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            `/.netlify/functions/redirect?deal_id=${encodeURIComponent(deal_id)}`,
+          );
+
+          const data = await response.json();
+
+          if (data.location) {
+            window.location.replace(data.location);
+          } else {
+            throw new Error(data.error || "Redirect failed");
+          }
+        } catch (err) {
+          document.body.innerHTML = `<p>Something went wrong.<br>${err.message}</p>`;
+        }
+      }
+
+      start();
+    </script>
+  </body>
+</html>
