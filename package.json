@@ -1,0 +1,21 @@
+{
+  "name": "mclainspainting-misc",
+  "version": "1.0.0",
+  "description": "This project provides a lightweight redirect service that retrieves data from HubSpot and Airtable, constructs a YouCanBookMe booking URL with prefilled parameters, and redirects the user to the booking page.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Boolean-Automation/ycbm-custom-prefill-link.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Boolean-Automation/ycbm-custom-prefill-link/issues"
+  },
+  "homepage": "https://github.com/Boolean-Automation/ycbm-custom-prefill-link#readme"
+}

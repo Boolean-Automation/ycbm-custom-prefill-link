@@ -38,6 +38,7 @@
       async function start() {
         const params = new URLSearchParams(window.location.search);
         const deal_id = params.get("deal_id");
+        const ycbm_url = params.get("ycbm_url");
 
         if (!deal_id) {
           document.body.innerHTML = "<p>Missing deal_id parameter.</p>";
@@ -46,7 +47,7 @@
 
         try {
           const response = await fetch(
-            `/.netlify/functions/redirect?deal_id=${encodeURIComponent(deal_id)}`,
+            `/.netlify/functions/redirect?deal_id=${encodeURIComponent(deal_id)}&ycbm_url=${encodeURIComponent(ycbm_url)}`,
           );
 
           const data = await response.json();

@@ -1,6 +1,8 @@
 export async function handler(event) {
+  console.log("Query params:", event.queryStringParameters);
+
   const deal_id = event.queryStringParameters?.deal_id;
-  const ycbmUrl = event.queryStringParameters?.ycbmUrl;
+  const ycbmUrl = event.queryStringParameters?.ycbm_url;
 
   if (!deal_id) {
     return {
@@ -12,7 +14,7 @@ export async function handler(event) {
   if (!ycbmUrl) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "Missing ycbmUrl" }),
+      body: JSON.stringify({ error: "Missing ycbm_url" }),
     };
   }
 
@@ -21,17 +23,18 @@ export async function handler(event) {
   const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
   const AIRTABLE_TABLE = process.env.AIRTABLE_TABLE;
 
+  const shortCodes = JSON.parse(process.env.SHORTCODES_JSON || "{}");
+
   const authHeaders = {
     Authorization: `Bearer ${HUBSPOT_ACCESS_TOKEN}`,
     "Content-Type": "application/json",
   };
 
-  function ifempty(...values) {
-    return values.find((v) => v != null && v !== "") || "";
-  }
+  const ifempty = (...values) =>
+    values.find((v) => v != null && v !== "") || "";
 
-  function formatPhoneForUrl(phone) {
-    if (!phone) return phone;
+  const formatPhoneForUrl = (phone) => {
+    if (!phone) return "";
 
     const digits = phone.replace(/\D/g, "");
 
@@ -44,20 +47,33 @@ export async function handler(event) {
     }
 
     return phone;
-  }
+  };
 
   try {
     //
-    // GET DEAL + ASSOCIATIONS
+    // GET ALL DEAL PROPERTY DEFINITIONS
+    //
+    const propResp = await fetch(
+      "https://api.hubapi.com/crm/v3/properties/deals?archived=false",
+      { headers: authHeaders },
+    );
+
+    const propData = await propResp.json();
+    const deal_properties = propData.results.map((p) => p.name);
+    const propertiesParam = deal_properties.join(",");
+
+    //
+    // GET DEAL
     //
     const dealResp = await fetch(
-      `https://api.hubapi.com/crm/v3/objects/deals/${deal_id}?associations=contacts,companies`,
+      `https://api.hubapi.com/crm/v3/objects/deals/${deal_id}?properties=${propertiesParam}&associations=contacts,companies`,
       { headers: authHeaders },
     );
 
     const dealData = await dealResp.json();
-
     const dealProps = dealData?.properties || {};
+
+    console.log("Deal properties:", dealProps);
 
     const contactId =
       dealData?.associations?.contacts?.results?.[0]?.id ?? null;
@@ -66,7 +82,7 @@ export async function handler(event) {
       dealData?.associations?.companies?.results?.[0]?.id ?? null;
 
     //
-    // PARALLEL FETCH CONTACT + COMPANY
+    // FETCH CONTACT + COMPANY
     //
     const requests = [];
 
@@ -98,7 +114,7 @@ export async function handler(event) {
     const companyData = companyDetails?.properties || {};
 
     //
-    // AIRTABLE OWNER LOOKUP
+    // GET OWNER FROM AIRTABLE
     //
     const ownerId = dealProps.hubspot_owner_id;
 
@@ -119,45 +135,235 @@ export async function handler(event) {
     //
     const payload = {};
 
-    payload.dealId = dealData.id || "";
+    for (const field of Object.keys(shortCodes)) {
+      let value = "";
 
-    payload.team = ownerData["Name"] || "";
-    payload.estimatorEmail = ownerData["Work Email"] || "";
-    payload.teamPhone = formatPhoneForUrl(ownerData["Phone Number"] || "");
+      switch (field) {
+        case "dealId":
+          value = dealData.id;
+          break;
 
-    payload.appointmentType =
-      dealProps.appointment_type || "In-Person Estimate";
+        case "company":
+          value = ifempty(dealProps.company_name, companyData.name);
+          break;
 
-    payload.projectType = String(ifempty(dealProps.project_type)).replace(
-      /;/g,
-      ",",
-    );
+        case "team":
+          value = ownerData["Name"];
+          break;
 
-    payload.jobFirstName = ifempty(
-      dealProps.job_contact_first_name,
-      contactData.firstname,
-    );
+        case "teamPhone":
+          value = formatPhoneForUrl(ownerData["Phone Number"]);
+          break;
 
-    payload.jobLastName = ifempty(
-      dealProps.job_contact_last_name,
-      contactData.lastname,
-    );
+        case "appointmentType":
+          value = ifempty(
+            dealProps.appointment_type,
+            dealProps.paintscout_quote_type_label,
+          );
+          break;
 
-    payload.jobEmail = ifempty(dealProps.job_contact_email, contactData.email);
+        case "projectType":
+          value = dealProps.project_type;
+          break;
 
-    payload.jobPhone = formatPhoneForUrl(
-      ifempty(
-        dealProps.job_contact_phone,
-        contactData.mobilephone,
-        contactData.phone,
-      ),
-    );
+        case "source":
+          value = ifempty(
+            dealProps.primary_marketing_source,
+            dealProps.source,
+            dealProps.multi_source_attribution,
+          );
+          break;
 
-    payload.company = ifempty(dealProps.company_name, companyData.name);
+        case "jobDescription":
+          value = dealProps.description;
+          break;
 
-    const encoded = new URLSearchParams(payload).toString();
+        case "identifier":
+          value = dealProps.job_identifier;
+          break;
 
+        case "projectTimeline":
+          value = dealProps.job_timeline_notes;
+          break;
+
+        case "previousCustomer":
+          value = dealProps.previous_customer;
+          break;
+
+        case "appointmentScheduledBy":
+          value = dealProps.scheduled_by;
+          break;
+
+        case "projectTag":
+          value = dealProps.tags;
+          break;
+
+        case "houseYear":
+          value = dealProps.house_built_before_1978;
+          break;
+
+        case "referredBy":
+          value = dealProps.referral_name;
+          break;
+
+        //
+        // JOB CONTACT
+        //
+        case "jobFirstName":
+          value = ifempty(
+            dealProps.job_contact_first_name,
+            contactData.firstname,
+          );
+          break;
+
+        case "jobLastName":
+          value = ifempty(
+            dealProps.job_contact_last_name,
+            contactData.lastname,
+          );
+          break;
+
+        case "jobEmail":
+          value = ifempty(dealProps.job_contact_email, contactData.email);
+          break;
+
+        case "jobPhone":
+          value = formatPhoneForUrl(
+            ifempty(
+              dealProps.job_contact_phone,
+              contactData.mobilephone,
+              contactData.phone,
+            ),
+          );
+          break;
+
+        //
+        // JOB ADDRESS
+        //
+        case "jobStreet":
+          value = ifempty(
+            dealProps.job_site_street_address,
+            contactData.address,
+            dealProps.billing_street_address,
+          );
+          break;
+
+        case "jobCity":
+          value = ifempty(
+            dealProps.job_site_city,
+            contactData.city,
+            dealProps.billing_city,
+          );
+          break;
+
+        case "jobState":
+          value = ifempty(
+            dealProps.job_site_state,
+            contactData.state,
+            dealProps.billing_state,
+          );
+          break;
+
+        case "jobPostal":
+          value = ifempty(
+            dealProps.job_site_postal_code,
+            contactData.zip,
+            dealProps.billing_postal_code,
+          );
+          break;
+
+        //
+        // BILLING FALLBACK → JOB
+        //
+        case "billingFirstName":
+          value = ifempty(
+            dealProps.billing_contact_first_name,
+            contactData.firstname,
+            dealProps.job_contact_first_name,
+          );
+          break;
+
+        case "billingLastName":
+          value = ifempty(
+            dealProps.billing_contact_last_name,
+            contactData.lastname,
+            dealProps.job_contact_last_name,
+          );
+          break;
+
+        case "billingEmail":
+          value = ifempty(
+            dealProps.billing_contact_email,
+            contactData.email,
+            dealProps.job_contact_email,
+          );
+          break;
+
+        case "billingPhone":
+          value = formatPhoneForUrl(
+            ifempty(
+              dealProps.billing_contact_phone,
+              contactData.mobilephone,
+              contactData.phone,
+              dealProps.job_contact_phone,
+            ),
+          );
+          break;
+
+        case "billingStreet":
+          value = ifempty(
+            dealProps.billing_street_address,
+            dealProps.job_site_street_address,
+            contactData.address,
+          );
+          break;
+
+        case "billingCity":
+          value = ifempty(
+            dealProps.billing_city,
+            dealProps.job_site_city,
+            contactData.city,
+          );
+          break;
+
+        case "billingState":
+          value = ifempty(
+            dealProps.billing_state,
+            dealProps.job_site_state,
+            contactData.state,
+          );
+          break;
+
+        case "billingPostal":
+          value = ifempty(
+            dealProps.billing_postal_code,
+            dealProps.job_site_postal_code,
+            contactData.zip,
+          );
+          break;
+
+        default:
+          value = dealProps[field];
+      }
+
+      payload[field] = value || "";
+    }
+
+    console.log("Payload:", payload);
+
+    //
+    // APPLY SHORTCODES
+    //
+    const urlPayload = {};
+
+    for (const [field, shortcode] of Object.entries(shortCodes)) {
+      urlPayload[shortcode] = payload[field] || "";
+    }
+
+    const encoded = new URLSearchParams(urlPayload).toString();
     const location = `${ycbmUrl}?${encoded}`;
+
+    console.log("Redirecting to:", location);
 
     return {
       statusCode: 200,
@@ -167,6 +373,8 @@ export async function handler(event) {
       body: JSON.stringify({ location }),
     };
   } catch (err) {
+    console.error(err);
+
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message }),
